@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.swiftpm/
+Packages/
+dist/
+Package.resolved
+*.o
+*.d
+*.swiftdeps
+DerivedData/
+.claude/settings.local.json
+docs/superpowers/

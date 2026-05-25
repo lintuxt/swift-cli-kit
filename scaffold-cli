@@ -1,0 +1,203 @@
+#!/bin/sh
+# scaffold-cli — generate a new macOS Swift CLI built on swift-cli-kit.
+#
+# Usage:
+#   ./scaffold-cli <name> --tagline "<one-line description>" --repo <owner/name>
+#
+# Creates ./<name>/ with a SwiftPM executable depending on CLIKit and
+# swift-argument-parser, plus install.sh, CI/release workflows, LICENSE,
+# README, and a docs/ folder — workflows and installer rendered from
+# templates/ with placeholders filled.
+
+set -eu
+
+KIT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Escape a string so it is safe as the replacement half of a sed s|||g command.
+sed_rhs() { printf '%s' "$1" | sed 's/[\&|]/\\&/g'; }
+
+usage() {
+  echo 'Usage: scaffold-cli <name> --tagline "<description>" --repo <owner/name>' >&2
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+NAME="$1"; shift
+TAGLINE=""; REPO=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --tagline) [ $# -ge 2 ] || usage; TAGLINE="$2"; shift 2 ;;
+    --repo)    [ $# -ge 2 ] || usage; REPO="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+[ -n "$NAME" ] && [ -n "$TAGLINE" ] && [ -n "$REPO" ] || usage
+[ ! -e "$NAME" ] || { echo "Error: '$NAME' already exists." >&2; exit 1; }
+
+# The name becomes a SwiftPM target and the base of a Swift type name, so it
+# must be a plain identifier — a letter followed by letters/digits/underscores.
+case "$NAME" in
+  [A-Za-z]*) ;;
+  *) echo "Error: <name> must start with a letter — got '$NAME'." >&2; exit 2 ;;
+esac
+case "$NAME" in
+  *[!A-Za-z0-9_]*)
+    echo "Error: <name> may contain only letters, digits, and underscores (no hyphens) — got '$NAME'." >&2
+    exit 2 ;;
+esac
+
+# The repo is interpolated into the generated install URL and into Swift
+# string literals (Package.swift, Command.swift). Constrain it to the GitHub
+# slug shape so a stray quote or backslash can't break either context.
+case "$REPO" in
+  */*) ;;
+  *) echo "Error: --repo must be <owner>/<name> — got '$REPO'." >&2; exit 2 ;;
+esac
+case "$REPO" in
+  *[!A-Za-z0-9._/-]*)
+    echo "Error: --repo may contain only letters, digits, dots, hyphens, underscores, and one slash — got '$REPO'." >&2
+    exit 2 ;;
+esac
+case "$REPO" in
+  *"/"*"/"*)
+    echo "Error: --repo must contain exactly one '/' — got '$REPO'." >&2
+    exit 2 ;;
+esac
+case "$REPO" in
+  /*|*/)
+    echo "Error: --repo must be <owner>/<name>, not empty on either side — got '$REPO'." >&2
+    exit 2 ;;
+esac
+
+# Capitalized name for the Swift command type (demo -> DemoCommand).
+FIRST="$(printf '%s' "$NAME" | cut -c1 | tr '[:lower:]' '[:upper:]')"
+REST="$(printf '%s' "$NAME" | cut -c2-)"
+CAP="${FIRST}${REST}"
+
+mkdir -p "$NAME/Sources/$NAME" "$NAME/.github/workflows" "$NAME/docs"
+
+# --- Package.swift ---------------------------------------------------------
+cat > "$NAME/Package.swift" <<EOF
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "$NAME",
+    platforms: [.macOS(.v13)],
+    products: [
+        .executable(name: "$NAME", targets: ["$NAME"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/lintuxt/swift-cli-kit", from: "0.1.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+    ],
+    targets: [
+        .executableTarget(
+            name: "$NAME",
+            dependencies: [
+                .product(name: "CLIKit", package: "swift-cli-kit"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
+        ),
+    ]
+)
+EOF
+
+# --- BuildInfo.swift -------------------------------------------------------
+cat > "$NAME/Sources/$NAME/BuildInfo.swift" <<EOF
+/// Release version and build number.
+///
+/// \`version\` is the semantic version — bump it by hand for a release.
+enum BuildInfo {
+    static let version = "0.1.0"
+    static let build = 1
+}
+EOF
+
+# --- main.swift ------------------------------------------------------------
+cat > "$NAME/Sources/$NAME/main.swift" <<EOF
+// Entry point. The command tree lives in ${CAP}Command.
+${CAP}Command.main()
+EOF
+
+# --- ${CAP}Command.swift ---------------------------------------------------
+# Escape backslashes and double-quotes so the tagline is a valid Swift string literal.
+SWIFT_TAGLINE=$(printf '%s' "$TAGLINE" | sed 's/[\"]/\\&/g')
+cat > "$NAME/Sources/$NAME/${CAP}Command.swift" <<EOF
+import ArgumentParser
+import CLIKit
+
+struct ${CAP}Command: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "$NAME",
+        abstract: "$SWIFT_TAGLINE",
+        discussion: """
+            EXAMPLES:
+              $NAME
+              $NAME --upgrade
+
+            Looking for sponsors — https://github.com/sponsors/lintuxt
+            """,
+        version: "\\(BuildInfo.version) (build \\(BuildInfo.build))"
+    )
+
+    @Flag(help: "Check for a newer release and install it.")
+    var upgrade = false
+
+    func run() throws {
+        if upgrade {
+            try Upgrade.runSync(
+                repo: "$REPO",
+                currentVersion: BuildInfo.version,
+                installerURL: "https://raw.githubusercontent.com/$REPO/main/install.sh")
+            return
+        }
+        Banner.printBanner(name: "$NAME", version: BuildInfo.version, tagline: "$SWIFT_TAGLINE")
+        print("  " + Tone.subtle("Hello from $NAME. Wire up your commands here."))
+        Banner.printSponsorFooter(url: "https://github.com/sponsors/lintuxt")
+    }
+}
+EOF
+
+# --- Rendered templates ----------------------------------------------------
+render() {
+  _repo=$(sed_rhs "$REPO")
+  _name=$(sed_rhs "$NAME")
+  _tagline=$(sed_rhs "$TAGLINE")
+  _license=$(sed_rhs "MIT")
+  _macos=$(sed_rhs "13")
+  _shot=$(sed_rhs "docs/screenshot.png")
+  _shot_alt=$(sed_rhs "$NAME CLI output")
+  sed -e "s|{{REPO}}|$_repo|g" \
+      -e "s|{{BIN_NAME}}|$_name|g" \
+      -e "s|{{NAME}}|$_name|g" \
+      -e "s|{{TAGLINE}}|$_tagline|g" \
+      -e "s|{{LICENSE_NAME}}|$_license|g" \
+      -e "s|{{MACOS_MIN}}|$_macos|g" \
+      -e "s|{{SCREENSHOT}}|$_shot|g" \
+      -e "s|{{SCREENSHOT_ALT}}|$_shot_alt|g" \
+      -e "s|{{TRY_COMMANDS}}|echo \"  $_name --help\"|g" \
+      "$1"
+}
+render "$KIT_DIR/templates/install.sh" > "$NAME/install.sh"
+chmod +x "$NAME/install.sh"
+cp "$KIT_DIR/templates/ci.yml" "$NAME/.github/workflows/ci.yml"
+render "$KIT_DIR/templates/release.yml" > "$NAME/.github/workflows/release.yml"
+
+# --- LICENSE / README / .gitignore / docs ---------------------------------
+cp "$KIT_DIR/LICENSE" "$NAME/LICENSE"
+render "$KIT_DIR/templates/README.md" > "$NAME/README.md"
+
+cat > "$NAME/.gitignore" <<'EOF'
+.DS_Store
+.build/
+.swiftpm/
+Packages/
+dist/
+Package.resolved
+EOF
+
+touch "$NAME/docs/.gitkeep"
+
+printf '%s\n' "Scaffolded $NAME/ — tagline \"$TAGLINE\", repo $REPO" \
+              "Next: cd $NAME && swift build"
