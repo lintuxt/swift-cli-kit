@@ -1,6 +1,6 @@
 *Library, scaffold, and conventions for native macOS Swift command-line tools.*
 
-[![release](https://img.shields.io/github/v/tag/lintuxt/swift-cli-kit?label=release&color=blue)](https://github.com/lintuxt/swift-cli-kit/releases)
+[![release](https://img.shields.io/github/v/tag/lintuxt/swift-cli-kit?label=release&color=blue)](https://github.com/lintuxt/swift-cli-kit/tags)
 [![CI](https://github.com/lintuxt/swift-cli-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/lintuxt/swift-cli-kit/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](https://github.com/lintuxt/swift-cli-kit/blob/trunk/LICENSE)
 
