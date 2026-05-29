@@ -75,6 +75,29 @@ without one pass `BuildInfo.version` alone.
 - `CommandConfiguration.discussion` ends with one line pointing at the
   sponsors URL (mirrors the footer for `--help` output).
 
+## 8a. Terminal color standard (web mocks)
+
+CLIs color output **only** through `Tone` — never raw `Style` colors for new
+semantics. The lintuxt.ai terminal mocks are generated from real CLI output by
+the lintc `terminal-mock` plugin, which maps each `Tone`/ANSI to one semantic
+`t-*` CSS class. This is the canonical table; the lintc converter and the
+lintuxt CSS both conform to it:
+
+| `Tone` | ANSI | class | brand color |
+|---|---|---|---|
+| `title`/`heading`/`value` | `1;96`/`1`/`97` | `t-strong` | `--text` |
+| `accent` | `96` | `t-accent` | `--accent-2` teal |
+| `link` | `36` | `t-link` | teal, underlined |
+| `muted` | `90` | `t-muted` | `--text-dim` |
+| `subtle` | `2` | `t-subtle` | `--text-faint` |
+| `ok` | `32` | `t-ok` | mint |
+| `warn` | `33` | `t-warn` | gold |
+| `error` | `31` | `t-error` | coral |
+| `love` | `35` | `t-love` | pink |
+
+Adding a new color to `Style`/`Tone` means adding a row here, a converter
+entry in lintc, and a `--t-*` class in the lintuxt CSS — keep the three in sync.
+
 ## 9. Project README
 
 Every kit-built CLI's `README.md` follows the Product template at
